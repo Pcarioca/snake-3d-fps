@@ -31,23 +31,21 @@
   const bulletSpeed = 25;   // bullet velocity units per second
   const enemySpeed = 1;     // enemy wandering speed (very slow)
 
-  // Step‑based movement configuration.  Instead of continuously moving the
-  // snake at `moveSpeed` each frame, we advance the snake one discrete
-  // “step” every `stepInterval` seconds in the direction the player is
-  // currently facing.  This mimics the classic snake movement on a grid and
-  // dramatically slows the pace of the game.  Each step moves the camera
-  // exactly `stepSize` units.  The default step interval and size can be
-  // tweaked here.  See animate() below for implementation details.
-  // The time between steps (in seconds).  A larger interval slows the
-  // snake down by giving it more time between moves.  To make the
-  // first‑person snake feel more manageable, we increase this interval
-  // from 0.5 to 0.7 seconds.  Combined with a smaller step size (see
-  // stepSize below) this results in slower, more deliberate movement.
-  let stepInterval = 0.7;
+  // Step‑based movement configuration.  Rather than continuously moving
+  // forward each frame, the snake advances one discrete “step” at a
+  // fixed interval.  This emulates the classic grid‑based feel of the
+  // original snake game.  The `stepInterval` defines how long (in
+  // seconds) to wait between steps—larger values slow the snake
+  // significantly.  The `stepSize` defines how far (in world units) the
+  // snake moves each step.  We slow the game down dramatically by
+  // increasing the interval to 1 second and using a full unit per step.
+  let stepInterval = 1.0;
   let stepAccumulator = 0;  // accumulates delta time until a step occurs
-  // Distance moved per step.  Reducing this from 1 to 0.7 further
-  // slows the snake and gives the player more control over turns.
-  const stepSize = 0.7;
+  // Distance moved per step.  Using a step size of 1 unit keeps the
+  // snake aligned with the grid created by the world walls.  Combined
+  // with the larger stepInterval this results in a slow, deliberate
+  // pace reminiscent of the original game.
+  const stepSize = 1.0;
 
   // Game state variables
   let yaw = 0;    // horizontal rotation (around Y)
@@ -289,8 +287,11 @@
     // Update orientation of camera from yaw/pitch
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
     // Compute forward direction on XZ plane (unit vector)
+    // Compute the camera's forward direction on the XZ plane.  This
+    // unnormalised vector is used to determine the cardinal direction
+    // closest to the player's current yaw.  We normalise below only
+    // when computing the true forward vector for bullets.
     const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-    forward.normalize();
     // Step‑based movement: accumulate time and when we cross the interval,
     // advance the camera by a discrete step in the direction the player is
     // facing.  This produces slower, grid‑like movement rather than
@@ -298,17 +299,25 @@
     stepAccumulator += dt;
     if (stepAccumulator >= stepInterval) {
       stepAccumulator -= stepInterval;
-      // Move in the current facing direction rather than snapping to
-      // cardinal directions.  We reuse the `forward` vector computed
-      // above, which always represents the unit direction the camera
-      // is pointing in the XZ plane (ignoring pitch).  Clone it to
-      // avoid modifying the original and normalize just in case.
-      const stepDir = forward.clone().normalize();
-      // Translate the camera by the chosen step size along this vector.
+      // Determine the closest cardinal direction (±X or ±Z) based on
+      // the current yaw.  We choose the axis with the largest absolute
+      // component of the forward vector.  This snaps movement to the
+      // primary axes while still letting the player look freely.
+      let dx = 0;
+      let dz = 0;
+      if (Math.abs(forward.x) > Math.abs(forward.z)) {
+        dx = Math.sign(forward.x);
+        dz = 0;
+      } else {
+        dx = 0;
+        dz = Math.sign(forward.z);
+      }
+      const stepDir = new THREE.Vector3(dx, 0, dz);
+      // Translate the camera by the step size along the chosen axis
       camera.position.addScaledVector(stepDir, stepSize);
-      // Ensure the camera stays at the correct height above the floor.
+      // Maintain eye height at snakeHeight
       camera.position.y = snakeHeight;
-      // Record the new position for the tail history.
+      // Record the new position for tail history
       tailPositions.push(camera.position.clone());
     }
     // If there are more recorded tail positions than needed, we can
@@ -318,15 +327,11 @@
     if (tailPositions.length > maxPositions) {
       tailPositions.splice(0, tailPositions.length - maxPositions);
     }
-    // Update tail segment positions: each segment follows the recorded path
-    for (let i = 0; i < tailSegments.length; i++) {
-      const idx = tailPositions.length - 1 - i;
-      if (idx >= 0) {
-        const p = tailPositions[idx];
-        tailSegments[i].position.set(p.x, 0.2, p.z);
-      }
-    }
-    // Update tail segment positions
+    // Update tail segment positions: each segment follows the recorded path.
+    // We iterate over the segments and assign positions from the
+    // tailPositions array in reverse order (most recent to oldest).  If
+    // there are fewer recorded positions than segments, the remaining
+    // segments keep their last position.
     for (let i = 0; i < tailSegments.length; i++) {
       const idx = tailPositions.length - 1 - i;
       if (idx >= 0) {
