@@ -22,9 +22,25 @@
   const floorY = 0;         // height of floor
   const snakeHeight = 1.6;  // eye height for camera and tail segments
   const recordStep = 0.5;   // distance traveled before recording tail position
-  let moveSpeed = 5;        // units per second (will increase as snake grows)
+  // Base movement speed of the snake (units per second). The original speed of 5
+  // made the snake sprint around the arena much too quickly and was hard to
+  // control. To make the game more playable and closer to the feel of a
+  // classic snake game, reduce the starting speed significantly. This value
+  // can still scale slightly as the snake eats food.
+  let moveSpeed = 2;        // units per second (will increase as snake grows)
   const bulletSpeed = 25;   // bullet velocity units per second
   const enemySpeed = 1;     // enemy wandering speed (very slow)
+
+  // Step‑based movement configuration.  Instead of continuously moving the
+  // snake at `moveSpeed` each frame, we advance the snake one discrete
+  // “step” every `stepInterval` seconds in the direction the player is
+  // currently facing.  This mimics the classic snake movement on a grid and
+  // dramatically slows the pace of the game.  Each step moves the camera
+  // exactly `stepSize` units.  The default step interval and size can be
+  // tweaked here.  See animate() below for implementation details.
+  let stepInterval = 0.5;   // seconds between steps
+  let stepAccumulator = 0;  // accumulates delta time until a step occurs
+  const stepSize = 1;       // distance moved per step
 
   // Game state variables
   let yaw = 0;    // horizontal rotation (around Y)
@@ -170,7 +186,10 @@
     camera.position.set(0, snakeHeight, 0);
     lastRecordPos.copy(camera.position);
     tailLength = 5;
-    moveSpeed = 5;
+    // Reset step accumulator so the first movement occurs after stepInterval
+    stepAccumulator = 0;
+    // Optionally reset moveSpeed (unused for step‑based movement but kept for future tweaks)
+    moveSpeed = 2;
     score = 0;
     // Remove old objects
     foods.forEach(f => scene.remove(f));
@@ -262,17 +281,61 @@
     const dt = clock.getDelta();
     // Update orientation of camera from yaw/pitch
     camera.rotation.set(pitch, yaw, 0, 'YXZ');
-    // Compute forward direction on XZ plane
+    // Compute forward direction on XZ plane (unit vector)
     const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
     forward.normalize();
-    // Move camera forward continuously
-    camera.position.addScaledVector(forward, moveSpeed * dt);
-    // Maintain constant height
-    camera.position.y = snakeHeight;
-    // Record tail positions when traveled enough distance
-    if (camera.position.distanceTo(lastRecordPos) > recordStep) {
+    // Step‑based movement: accumulate time and when we cross the interval,
+    // advance the camera by a discrete step in the direction the player is
+    // facing.  This produces slower, grid‑like movement rather than
+    // continuous motion.  We reset the accumulator but keep leftover dt.
+    stepAccumulator += dt;
+    if (stepAccumulator >= stepInterval) {
+      stepAccumulator -= stepInterval;
+      // Determine the cardinal direction based on current yaw.  The yaw
+      // angle uses 0 rad as facing +Z (north), pi/2 rad as +X (east),
+      // pi rad or −pi as −Z (south) and −pi/2 rad as −X (west).  We map
+      // yaw into one of these four directions.  Additional octant
+      // directions could be added if desired.
+      let stepDir;
+      const angle = yaw;
+      // Normalize angle to the range [‑π, π)
+      let a = angle % (Math.PI * 2);
+      if (a < -Math.PI) a += Math.PI * 2;
+      if (a >= Math.PI) a -= Math.PI * 2;
+      if (a >= -Math.PI / 4 && a < Math.PI / 4) {
+        // Facing roughly forward (+Z)
+        stepDir = new THREE.Vector3(0, 0, 1);
+      } else if (a >= Math.PI / 4 && a < 3 * Math.PI / 4) {
+        // Facing roughly right (+X)
+        stepDir = new THREE.Vector3(1, 0, 0);
+      } else if (a >= 3 * Math.PI / 4 || a < -3 * Math.PI / 4) {
+        // Facing roughly back (‑Z)
+        stepDir = new THREE.Vector3(0, 0, -1);
+      } else {
+        // Facing roughly left (‑X)
+        stepDir = new THREE.Vector3(-1, 0, 0);
+      }
+      // Move camera by one step
+      camera.position.addScaledVector(stepDir, stepSize);
+      // Keep the camera height constant
+      camera.position.y = snakeHeight;
+      // Record tail position for this step
       tailPositions.push(camera.position.clone());
-      lastRecordPos.copy(camera.position);
+    }
+    // If there are more recorded tail positions than needed, we can
+    // optionally discard older positions to limit memory growth.  This
+    // retains enough history for the current tail length plus a buffer.
+    const maxPositions = tailSegments.length + 50;
+    if (tailPositions.length > maxPositions) {
+      tailPositions.splice(0, tailPositions.length - maxPositions);
+    }
+    // Update tail segment positions: each segment follows the recorded path
+    for (let i = 0; i < tailSegments.length; i++) {
+      const idx = tailPositions.length - 1 - i;
+      if (idx >= 0) {
+        const p = tailPositions[idx];
+        tailSegments[i].position.set(p.x, 0.2, p.z);
+      }
     }
     // Update tail segment positions
     for (let i = 0; i < tailSegments.length; i++) {
@@ -327,7 +390,10 @@
         scene.remove(f);
         foods.splice(i, 1);
         tailLength += 2; // grow by 2 segments
-        moveSpeed += 0.2; // increase speed slightly
+        // Increase speed very slightly on each food pickup. Originally the
+        // increment was 0.2, which quickly ramped up the pace. A smaller
+        // increment keeps the snake manageable even at higher lengths.
+        moveSpeed += 0.05;
         score += 1;
         // add new tail segments immediately
         const segmentGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
@@ -353,11 +419,16 @@
         return endGame('You were eaten by an enemy!');
       }
     }
-    // Check player collision with tail
-    for (let i = 4; i < tailPositions.length; i++) { // skip first few positions to avoid immediate self collision
-      const p = tailPositions[i];
-      const dist = camera.position.distanceTo(p);
-      if (dist < 0.5) {
+    // Check player collision with tail segments.  Each tail segment has a
+    // physical mesh with a size of roughly 0.4 units.  We skip the first
+    // few segments near the head (to avoid immediate collision with the
+    // initial segments) and test the rest against the camera position.  If
+    // the player comes within 0.4 units of a segment, it is considered a
+    // self‑collision.
+    for (let i = 3; i < tailSegments.length; i++) {
+      const seg = tailSegments[i];
+      const dist = camera.position.distanceTo(seg.position);
+      if (dist < 0.4) {
         return endGame('You ran into yourself!');
       }
     }

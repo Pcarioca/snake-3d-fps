@@ -5,7 +5,10 @@ This repository contains **3D Snake FPS**, a first‑person 3D interpretation of
 ## Features
 
 - **First‑person perspective:**  Steer the snake by moving your mouse.  The game uses pointer‑lock controls to capture your mouse and translates movement into yaw and pitch.
-- **Dynamic 3D world:**  A simple arena with textured floors and walls, rendered using [Three.js](https://threejs.org/) and WebGL.  The snake moves continuously forward and you navigate to avoid obstacles.
+ - **Dynamic 3D world:**  A simple arena with textured floors and walls, rendered using [Three.js](https://threejs.org/) and WebGL.  
+   Instead of sprinting endlessly, the snake now advances in discrete steps.  Every half second it moves one
+   unit in the direction you are currently facing.  This slower, more deliberate pace makes the game
+   playable for first‑time FPS snake players and lets you think ahead as you steer.
 - **Grow by collecting coins:**  Golden coins spawn randomly around the arena.  Each coin increases your tail length by two segments and slightly increases your speed.
 - **Tail collisions:**  Your previous path is rendered as a green tail following behind you.  Colliding with any part of your tail ends the game.
 - **Enemies and shooting:**  Enemies wander the arena.  Shoot them with left click to earn points.  If you run into an enemy, it’s game over.
@@ -14,7 +17,9 @@ This repository contains **3D Snake FPS**, a first‑person 3D interpretation of
 
 ## Controls
 
-- **Click “Start Game”** to begin.  The browser will request pointer lock – move your mouse to steer.
+ - **Click “Start Game”** to begin.  The browser will request pointer lock – move your mouse to steer.  
+   The snake will move forward in a straight line every half second.  Turn your view with the mouse before
+   the next step to change direction.
 - **Collect coins** to grow your snake and increase your score.
 - **Avoid your own tail**, the walls and the enemies.  Colliding with any of these ends the game.
 - **Left click** while in pointer lock to shoot a bullet.  Hitting an enemy removes it and awards bonus points.
