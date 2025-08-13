@@ -38,9 +38,16 @@
   // dramatically slows the pace of the game.  Each step moves the camera
   // exactly `stepSize` units.  The default step interval and size can be
   // tweaked here.  See animate() below for implementation details.
-  let stepInterval = 0.5;   // seconds between steps
+  // The time between steps (in seconds).  A larger interval slows the
+  // snake down by giving it more time between moves.  To make the
+  // first‑person snake feel more manageable, we increase this interval
+  // from 0.5 to 0.7 seconds.  Combined with a smaller step size (see
+  // stepSize below) this results in slower, more deliberate movement.
+  let stepInterval = 0.7;
   let stepAccumulator = 0;  // accumulates delta time until a step occurs
-  const stepSize = 1;       // distance moved per step
+  // Distance moved per step.  Reducing this from 1 to 0.7 further
+  // slows the snake and gives the player more control over turns.
+  const stepSize = 0.7;
 
   // Game state variables
   let yaw = 0;    // horizontal rotation (around Y)
@@ -291,35 +298,17 @@
     stepAccumulator += dt;
     if (stepAccumulator >= stepInterval) {
       stepAccumulator -= stepInterval;
-      // Determine the cardinal direction based on current yaw.  The yaw
-      // angle uses 0 rad as facing +Z (north), pi/2 rad as +X (east),
-      // pi rad or −pi as −Z (south) and −pi/2 rad as −X (west).  We map
-      // yaw into one of these four directions.  Additional octant
-      // directions could be added if desired.
-      let stepDir;
-      const angle = yaw;
-      // Normalize angle to the range [‑π, π)
-      let a = angle % (Math.PI * 2);
-      if (a < -Math.PI) a += Math.PI * 2;
-      if (a >= Math.PI) a -= Math.PI * 2;
-      if (a >= -Math.PI / 4 && a < Math.PI / 4) {
-        // Facing roughly forward (+Z)
-        stepDir = new THREE.Vector3(0, 0, 1);
-      } else if (a >= Math.PI / 4 && a < 3 * Math.PI / 4) {
-        // Facing roughly right (+X)
-        stepDir = new THREE.Vector3(1, 0, 0);
-      } else if (a >= 3 * Math.PI / 4 || a < -3 * Math.PI / 4) {
-        // Facing roughly back (‑Z)
-        stepDir = new THREE.Vector3(0, 0, -1);
-      } else {
-        // Facing roughly left (‑X)
-        stepDir = new THREE.Vector3(-1, 0, 0);
-      }
-      // Move camera by one step
+      // Move in the current facing direction rather than snapping to
+      // cardinal directions.  We reuse the `forward` vector computed
+      // above, which always represents the unit direction the camera
+      // is pointing in the XZ plane (ignoring pitch).  Clone it to
+      // avoid modifying the original and normalize just in case.
+      const stepDir = forward.clone().normalize();
+      // Translate the camera by the chosen step size along this vector.
       camera.position.addScaledVector(stepDir, stepSize);
-      // Keep the camera height constant
+      // Ensure the camera stays at the correct height above the floor.
       camera.position.y = snakeHeight;
-      // Record tail position for this step
+      // Record the new position for the tail history.
       tailPositions.push(camera.position.clone());
     }
     // If there are more recorded tail positions than needed, we can
